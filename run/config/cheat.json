@@ -1,0 +1,96 @@
+{
+  "menuKey": 344,
+  "modules": [
+    {
+      "name": "Aim Assist",
+      "enabled": true,
+      "bind": 0,
+      "settings": {
+        "range": 4.5,
+        "fov": 30.0,
+        "speed": 0.35,
+        "hold": 1.0
+      }
+    },
+    {
+      "name": "Reach",
+      "enabled": true,
+      "bind": 0,
+      "settings": {
+        "range": 8.0
+      }
+    },
+    {
+      "name": "Criticals",
+      "enabled": true,
+      "bind": 0,
+      "settings": {}
+    },
+    {
+      "name": "Tracers",
+      "enabled": true,
+      "bind": 0,
+      "settings": {
+        "players": 1.0,
+        "range": 64.0,
+        "monsters": 0.0,
+        "animals": 0.0
+      }
+    },
+    {
+      "name": "Fly",
+      "enabled": false,
+      "bind": 71,
+      "settings": {
+        "speed": 1.0
+      }
+    },
+    {
+      "name": "No Fall",
+      "enabled": true,
+      "bind": 0,
+      "settings": {
+        "hover": 0.1
+      }
+    },
+    {
+      "name": "Anti Hunger",
+      "enabled": true,
+      "bind": 0,
+      "settings": {}
+    },
+    {
+      "name": "FreeCam",
+      "enabled": false,
+      "bind": 72,
+      "settings": {
+        "speed": 0.9
+      }
+    },
+    {
+      "name": "X-Ray",
+      "enabled": true,
+      "bind": 88,
+      "settings": {
+        "spawner": 1.0,
+        "ores": 1.0,
+        "range": 32.0,
+        "containers": 0.0
+      }
+    },
+    {
+      "name": "Fullbright",
+      "enabled": true,
+      "bind": 0,
+      "settings": {}
+    },
+    {
+      "name": "WallHack",
+      "enabled": true,
+      "bind": 74,
+      "settings": {
+        "range": 64.0
+      }
+    }
+  ]
+}

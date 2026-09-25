@@ -1,0 +1,24 @@
+modLoader="javafml"
+loaderVersion="[43,)"
+license="All rights reserved"
+
+[[mods]]
+modId="cheat"
+version="${file.jarVersion}"
+displayName="Cheat"
+authors="satanas"
+description="Client-side cheat: fly, no fall, auto mlg, no hunger, no knockback, freecam, critical hits, fullbright, reach, aim assist, tracers, x-ray, wallhack (ESP) and a custom configurable menu (default key: Right Shift)."
+
+[[dependencies.cheat]]
+modId="forge"
+mandatory=true
+versionRange="[43,)"
+ordering="NONE"
+side="CLIENT"
+
+[[dependencies.cheat]]
+modId="minecraft"
+mandatory=true
+versionRange="[1.19.2,1.20)"
+ordering="NONE"
+side="CLIENT"
