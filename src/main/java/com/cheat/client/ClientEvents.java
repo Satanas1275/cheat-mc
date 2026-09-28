@@ -34,6 +34,7 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.Boat;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -60,8 +61,10 @@ import net.minecraftforge.registries.ForgeRegistries;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Mod.EventBusSubscriber(modid = CheatMod.MODID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.FORGE)
@@ -83,12 +86,14 @@ public final class ClientEvents {
     private static boolean savedMayfly;
     private static boolean savedFlying;
     private static float savedFlySpeed;
+    private static Boat boatFlyBoat;
+    private static boolean boatFlySavedGravity;
 
     private static Double savedGamma;
     private static BlockPos airPlaceTarget;
 
-    private static final List<BlockPos> throughWallsCache = new ArrayList<>();
-    private static int throughWallsTicks;
+    private static final List<BlockPos> blockEspCache = new ArrayList<>();
+    private static int blockEspTicks;
     private static final List<BlockPos> xrayCache = new ArrayList<>();
     private static int xrayTicks;
     private static final Map<Block, int[]> xrayTargets = new HashMap<>();
@@ -224,13 +229,45 @@ public final class ClientEvents {
         Vec3 end = start.add(player.getViewVector(1.0F).scale(module.slider("range").value));
         return BlockGetter.traverseBlocks(start, end, null, (context, pos) -> {
             Block block = mc.level.getBlockState(pos).getBlock();
-            String setting = throughWallsSetting(block);
-            if (setting == null || !module.bool(setting).value) {
+            if (!throughWallsBlockAllowed(module, block)) {
                 return null;
             }
             BlockPos target = pos.immutable();
             return mc.level.getWorldBorder().isWithinBounds(target) ? target : null;
         }, context -> null);
+    }
+
+    private static String blockId(Block block) {
+        ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+        return id == null ? null : id.toString();
+    }
+
+    private static Set<Block> selectedBlocks(Module module) {
+        Set<Block> out = new HashSet<>();
+        Module.BlockListSetting list = module.blockList("blocks");
+        if (list == null) {
+            return out;
+        }
+        for (String id : list.values()) {
+            ResourceLocation key = ResourceLocation.tryParse(id);
+            if (key == null || !ForgeRegistries.BLOCKS.containsKey(key)) {
+                continue;
+            }
+            Block block = ForgeRegistries.BLOCKS.getValue(key);
+            if (block != null) {
+                out.add(block);
+            }
+        }
+        return out;
+    }
+
+    private static boolean throughWallsBlockAllowed(Module module, Block block) {
+        if (module.bool("advanced").value) {
+            String id = blockId(block);
+            return id != null && module.blockList("blocks").contains(id);
+        }
+        String setting = throughWallsSetting(block);
+        return setting != null && module.bool(setting).value;
     }
 
     private static String throughWallsSetting(Block block) {
@@ -247,40 +284,51 @@ public final class ClientEvents {
             case "furnace" -> "furnace";
             case "blast_furnace" -> "blast_furnace";
             case "smoker" -> "smoker";
+            case "hopper" -> "hopper";
+            case "shulker_box" -> "shulker_box";
             default -> null;
         };
     }
 
-    private static void throughWallsScanTick(Minecraft mc, LocalPlayer player) {
-        Module module = ModuleRegistry.THROUGH_WALLS;
+    private static boolean blockEspAllowed(Module module, Block block, Set<Block> selected) {
+        if (module.bool("advanced").value) {
+            return selected.contains(block);
+        }
+        String setting = throughWallsSetting(block);
+        return setting != null && module.bool(setting).value;
+    }
+
+    private static void blockEspScanTick(Minecraft mc, LocalPlayer player) {
+        Module module = ModuleRegistry.BLOCK_ESP;
         if (!module.isEnabled()) {
-            throughWallsCache.clear();
-            throughWallsTicks = 0;
+            blockEspCache.clear();
+            blockEspTicks = 0;
             return;
         }
-        if (++throughWallsTicks < 5) {
+        if (++blockEspTicks < 5) {
             return;
         }
-        throughWallsTicks = 0;
-        throughWallsCache.clear();
+        blockEspTicks = 0;
+        blockEspCache.clear();
         double range = module.slider("range").value;
         double rangeSq = range * range;
         int radius = (int) Math.ceil(range);
+        int verticalRadius = Math.min(radius, 32);
         int centerX = Mth.floor(player.getX());
         int centerY = Mth.floor(player.getY());
         int centerZ = Mth.floor(player.getZ());
         Vec3 eye = player.getEyePosition(1.0F);
+        Set<Block> selected = module.bool("advanced").value ? selectedBlocks(module) : Set.of();
         for (int dx = -radius; dx <= radius; dx++) {
-            for (int dy = -radius; dy <= radius; dy++) {
+            for (int dy = -verticalRadius; dy <= verticalRadius; dy++) {
                 for (int dz = -radius; dz <= radius; dz++) {
                     BlockPos pos = new BlockPos(centerX + dx, centerY + dy, centerZ + dz);
                     Block block = mc.level.getBlockState(pos).getBlock();
-                    String setting = throughWallsSetting(block);
-                    if (setting == null || !module.bool(setting).value
+                    if (!blockEspAllowed(module, block, selected)
                             || eye.distanceToSqr(Vec3.atCenterOf(pos)) > rangeSq) {
                         continue;
                     }
-                    throughWallsCache.add(pos);
+                    blockEspCache.add(pos);
                 }
             }
         }
@@ -363,6 +411,7 @@ public final class ClientEvents {
         }
 
         noFallTick(mc, player);
+        boatFlyTick(player);
 
         if (ModuleRegistry.NO_HUNGER.isEnabled()) {
             player.getFoodData().setFoodLevel(20);
@@ -370,7 +419,7 @@ public final class ClientEvents {
         }
 
         aimAssistTick(mc, player);
-        throughWallsScanTick(mc, player);
+        blockEspScanTick(mc, player);
         xrayScanTick(mc, player);
         autoMlgTick(player);
         updateAirPlaceTarget(mc, player);
@@ -429,6 +478,36 @@ public final class ClientEvents {
                 }
             }
         }
+    }
+
+    private static void boatFlyTick(LocalPlayer player) {
+        Module module = ModuleRegistry.BOAT_FLY;
+        Entity vehicle = player.getVehicle();
+        if (boatFlyBoat != null && (vehicle != boatFlyBoat || !module.isEnabled())) {
+            boatFlyBoat.setNoGravity(boatFlySavedGravity);
+            boatFlyBoat = null;
+        }
+        if (!module.isEnabled() || !(vehicle instanceof Boat boat)) {
+            return;
+        }
+        if (boatFlyBoat != boat) {
+            boatFlyBoat = boat;
+            boatFlySavedGravity = boat.isNoGravity();
+        }
+        double speed = module.slider("speed").value;
+        double descent = module.slider("descent").value;
+        Vec3 look = player.getLookAngle();
+        double horizontal = Math.sqrt(look.x * look.x + look.z * look.z);
+        Vec3 forward = horizontal < 0.0001 ? Vec3.ZERO : new Vec3(look.x / horizontal, 0, look.z / horizontal);
+        Vec3 left = new Vec3(forward.z, 0, -forward.x);
+        Vec3 motion = forward.scale(player.input.forwardImpulse * speed)
+                .add(left.scale(player.input.leftImpulse * speed));
+        double vertical = player.input.jumping ? speed : -descent;
+        boat.setNoGravity(true);
+        boat.setDeltaMovement(motion.x, vertical, motion.z);
+        boat.setYRot(player.getYRot());
+        boat.setYHeadRot(player.getYRot());
+        boat.setXRot(player.getXRot());
     }
 
     private static void aimAssistTick(Minecraft mc, LocalPlayer player) {
@@ -506,6 +585,26 @@ public final class ClientEvents {
         return module.bool("animals").value;
     }
 
+    private static boolean xrayAllowed(Module xray, Block block, Set<Block> selected) {
+        if (xray.bool("advanced").value) {
+            return selected.contains(block);
+        }
+        int[] info = xrayTargets.get(block);
+        if (info == null) {
+            return false;
+        }
+        return switch (info[1]) {
+            case CAT_ORES -> xray.bool("ores").value;
+            case CAT_SPAWNER -> xray.bool("spawner").value;
+            default -> xray.bool("containers").value;
+        };
+    }
+
+    private static int xrayColor(Block block) {
+        int[] info = xrayTargets.get(block);
+        return info == null ? 0xFF9CFF57 : info[0];
+    }
+
     private static void xrayScanTick(Minecraft mc, LocalPlayer player) {
         if (!ModuleRegistry.XRAY.isEnabled()) {
             xrayCache.clear();
@@ -518,29 +617,18 @@ public final class ClientEvents {
         buildXrayTargets();
         xrayCache.clear();
         Module xray = ModuleRegistry.XRAY;
-        boolean wantOres = xray.bool("ores").value;
-        boolean wantSpawner = xray.bool("spawner").value;
-        boolean wantContainers = xray.bool("containers").value;
         double range = xray.slider("range").value;
         int centerX = Mth.floor(player.getX());
         int centerY = Mth.floor(player.getY());
         int centerZ = Mth.floor(player.getZ());
         int r = (int) Math.ceil(range);
+        Set<Block> selected = xray.bool("advanced").value ? selectedBlocks(xray) : Set.of();
         for (int dx = -r; dx <= r; dx++) {
             for (int dz = -r; dz <= r; dz++) {
                 for (int dy = -16; dy <= 16; dy++) {
                     BlockPos pos = new BlockPos(centerX + dx, centerY + dy, centerZ + dz);
                     Block block = player.level.getBlockState(pos).getBlock();
-                    int[] info = xrayTargets.get(block);
-                    if (info == null) {
-                        continue;
-                    }
-                    boolean take = switch (info[1]) {
-                        case CAT_ORES -> wantOres;
-                        case CAT_SPAWNER -> wantSpawner;
-                        default -> wantContainers;
-                    };
-                    if (take) {
+                    if (xrayAllowed(xray, block, selected)) {
                         xrayCache.add(pos);
                     }
                 }
@@ -627,10 +715,10 @@ public final class ClientEvents {
     @SubscribeEvent
     public static void onRenderLevelLast(RenderLevelLastEvent event) {
         boolean showAirPlace = ModuleRegistry.AIR_PLACE.isEnabled() && airPlaceTarget != null;
-        boolean showThroughWalls = ModuleRegistry.THROUGH_WALLS.isEnabled() && !throughWallsCache.isEmpty();
+        boolean showBlockEsp = ModuleRegistry.BLOCK_ESP.isEnabled() && !blockEspCache.isEmpty();
         boolean showWallHack = ModuleRegistry.WALL_HACK.isEnabled();
         if (!ModuleRegistry.TRACER.isEnabled() && !ModuleRegistry.XRAY.isEnabled()
-                && !showAirPlace && !showThroughWalls && !showWallHack) {
+                && !showAirPlace && !showBlockEsp && !showWallHack) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -656,11 +744,11 @@ public final class ClientEvents {
         RenderSystem.defaultBlendFunc();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
 
-        if (showThroughWalls || showWallHack) {
+        if (showBlockEsp || showWallHack) {
             BufferBuilder fills = Tesselator.getInstance().getBuilder();
             fills.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
-            if (showThroughWalls) {
-                for (BlockPos pos : throughWallsCache) {
+            if (showBlockEsp) {
+                for (BlockPos pos : blockEspCache) {
                     renderAabbFill(model, fills, new AABB(pos), cam, 1.0f, 0.55f, 0.12f, 0.22f);
                 }
             }
@@ -709,8 +797,8 @@ public final class ClientEvents {
             renderBox(model, buf, airPlaceTarget, cam, 0.09f, 0.60f, 0.84f);
         }
 
-        if (showThroughWalls) {
-            for (BlockPos pos : throughWallsCache) {
+        if (showBlockEsp) {
+            for (BlockPos pos : blockEspCache) {
                 renderBox(model, buf, pos, cam, 1.0f, 0.65f, 0.2f);
             }
         }
@@ -724,8 +812,8 @@ public final class ClientEvents {
 
         if (ModuleRegistry.XRAY.isEnabled()) {
             for (BlockPos p : xrayCache) {
-                int[] info = xrayTargets.get(mc.level.getBlockState(p).getBlock());
-                int color = info != null ? info[0] : 0xFF00FF;
+                Block block = mc.level.getBlockState(p).getBlock();
+                int color = xrayColor(block);
                 float r = ((color >> 16) & 0xFF) / 255f;
                 float g = ((color >> 8) & 0xFF) / 255f;
                 float b = (color & 0xFF) / 255f;

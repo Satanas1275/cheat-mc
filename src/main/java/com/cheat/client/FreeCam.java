@@ -62,7 +62,7 @@ public final class FreeCam {
         copyRotation(player);
         double yaw = Math.toRadians(player.getYRot());
         Vec3 forward = new Vec3(-Math.sin(yaw), 0, Math.cos(yaw));
-        Vec3 right = new Vec3(forward.z, 0, -forward.x);
+        Vec3 right = new Vec3(-forward.z, 0, forward.x);
         double x = 0, y = 0, z = 0;
         if (mc.screen == null) {
             if (mc.options.keyUp.isDown()) {

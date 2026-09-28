@@ -65,6 +65,17 @@ public final class CheatConfig {
                                 }
                             }
                         }
+                        if (st.blockLists != null) {
+                            for (Map.Entry<String, List<String>> e : st.blockLists.entrySet()) {
+                                if (!m.hasSetting(e.getKey())) {
+                                    continue;
+                                }
+                                if (m.getSetting(e.getKey()) instanceof Module.BlockListSetting list
+                                        && e.getValue() != null) {
+                                    list.setValues(e.getValue());
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -85,11 +96,14 @@ public final class CheatConfig {
                 st.enabled = m.isEnabled();
                 st.bind = m.getBind();
                 st.settings = new HashMap<>();
+                st.blockLists = new HashMap<>();
                 for (Module.Setting s : m.getSettings()) {
                     if (s instanceof Module.SliderSetting slider) {
                         st.settings.put(s.id, slider.value);
                     } else if (s instanceof Module.BoolSetting bool) {
                         st.settings.put(s.id, bool.value ? 1.0 : 0.0);
+                    } else if (s instanceof Module.BlockListSetting list) {
+                        st.blockLists.put(s.id, list.values());
                     }
                 }
                 data.modules.add(st);
@@ -111,5 +125,6 @@ public final class CheatConfig {
         public boolean enabled = false;
         public int bind = 0;
         public Map<String, Double> settings = new HashMap<>();
+        public Map<String, List<String>> blockLists = new HashMap<>();
     }
 }

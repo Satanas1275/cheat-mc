@@ -1,7 +1,10 @@
 package com.cheat.modules;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 public class Module {
     public final String name;
@@ -58,6 +61,11 @@ public class Module {
         return this;
     }
 
+    public Module blockList(String id, String label, Collection<String> defaultValues) {
+        settings.add(new BlockListSetting(id, label, defaultValues));
+        return this;
+    }
+
     public boolean hasSetting(String id) {
         for (Setting s : settings) {
             if (s.id.equals(id)) {
@@ -82,6 +90,10 @@ public class Module {
 
     public BoolSetting bool(String id) {
         return (BoolSetting) getSetting(id);
+    }
+
+    public BlockListSetting blockList(String id) {
+        return (BlockListSetting) getSetting(id);
     }
 
     public static abstract class Setting {
@@ -115,6 +127,38 @@ public class Module {
         BoolSetting(String id, String label, boolean value) {
             super(id, label);
             this.value = value;
+        }
+    }
+
+    public static class BlockListSetting extends Setting {
+        private final Set<String> values;
+
+        BlockListSetting(String id, String label, Collection<String> values) {
+            super(id, label);
+            this.values = new LinkedHashSet<>(values);
+        }
+
+        public boolean contains(String value) {
+            return values.contains(value);
+        }
+
+        public void toggle(String value) {
+            if (!values.remove(value)) {
+                values.add(value);
+            }
+        }
+
+        public void clear() {
+            values.clear();
+        }
+
+        public List<String> values() {
+            return new ArrayList<>(values);
+        }
+
+        public void setValues(Collection<String> values) {
+            this.values.clear();
+            this.values.addAll(values);
         }
     }
 }

@@ -178,6 +178,8 @@ public class CheatScreen extends Screen {
                 drawRowSlider(pose, i, slider, mouseX);
             } else if (s instanceof Module.BoolSetting bool) {
                 drawRowToggle(pose, i, bool.label, bool.value, ACCENT, 0xFF43D95E, mouseX, mouseY);
+            } else if (s instanceof Module.BlockListSetting list) {
+                drawRowBlockList(pose, i, list);
             }
             i++;
         }
@@ -213,6 +215,15 @@ public class CheatScreen extends Screen {
         fill(pose, trackX, trackY, trackX + (int) (trackW * ratio), trackY + 4, ACCENT);
         Component val = Component.literal(String.format("%.2f", slider.value));
         this.font.drawShadow(pose, val, trackX + trackW - this.font.width(val), r.y - 6, 0xFF7A7A7A);
+    }
+
+    private void drawRowBlockList(PoseStack pose, int i, Module.BlockListSetting list) {
+        Rect r = rowRectInWindow(i);
+        this.font.drawShadow(pose, Component.literal(list.label), r.x + 8, r.y + 5, 0xFFE8E8E8);
+        boolean advanced = selected.hasSetting("advanced") && selected.bool("advanced").value;
+        String value = advanced ? list.values().size() + " blocs" : "Désactivé";
+        int color = advanced ? ACCENT : 0xFF7A7A7A;
+        this.font.drawShadow(pose, Component.literal(value), r.x + r.w - this.font.width(value) - 8, r.y + 5, color);
     }
 
     private Tab[] tabs() {
@@ -283,6 +294,11 @@ public class CheatScreen extends Screen {
                     } else if (s instanceof Module.BoolSetting bool) {
                         bool.value = !bool.value;
                         CheatConfig.save();
+                    } else if (s instanceof Module.BlockListSetting list) {
+                        if (selected.hasSetting("advanced") && selected.bool("advanced").value) {
+                            draggingSlider = null;
+                            minecraft.setScreen(new BlockPickerScreen(this, list));
+                        }
                     }
                     return true;
                 }
