@@ -4,6 +4,7 @@ public enum ModuleCategory {
     COMBAT("Combat"),
     MOVEMENT("Movement"),
     PLAYER("Player"),
+    WORLD("World"),
     RENDER("Render");
 
     public final String label;

@@ -24,6 +24,7 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobCategory;
@@ -33,14 +34,19 @@ import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderHandEvent;
 import net.minecraftforge.client.event.RenderLevelLastEvent;
 import net.minecraftforge.common.ForgeMod;
@@ -79,7 +85,10 @@ public final class ClientEvents {
     private static float savedFlySpeed;
 
     private static Double savedGamma;
+    private static BlockPos airPlaceTarget;
 
+    private static final List<BlockPos> throughWallsCache = new ArrayList<>();
+    private static int throughWallsTicks;
     private static final List<BlockPos> xrayCache = new ArrayList<>();
     private static int xrayTicks;
     private static final Map<Block, int[]> xrayTargets = new HashMap<>();
@@ -139,6 +148,158 @@ public final class ClientEvents {
         if (CheatKeys.wasMenuPressed() && mc.screen == null) {
             mc.setScreen(new CheatScreen());
         }
+    }
+
+    @SubscribeEvent
+    public static void onRightClick(InputEvent.InteractionKeyMappingTriggered event) {
+        if (!event.isUseItem() || event.isCanceled()) {
+            return;
+        }
+        if (airPlaceRightClick(event)) {
+            return;
+        }
+        throughWallsRightClick(event);
+    }
+
+    private static boolean airPlaceRightClick(InputEvent.InteractionKeyMappingTriggered event) {
+        Module module = ModuleRegistry.AIR_PLACE;
+        if (!module.isEnabled()) {
+            return false;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mc.gameMode == null
+                || event.getKeyMapping() != mc.options.keyUse) {
+            return false;
+        }
+        BlockHitResult hit = airPlaceHit(mc, mc.player, module);
+        if (hit == null) {
+            return false;
+        }
+        airPlaceTarget = hit.getBlockPos();
+        return interactWithBlock(event, hit);
+    }
+
+    private static BlockHitResult airPlaceHit(Minecraft mc, LocalPlayer player, Module module) {
+        if (mc.screen != null || player.isHandsBusy() || player.isSpectator()) {
+            return null;
+        }
+        ItemStack mainHand = player.getMainHandItem();
+        if (mainHand.isEmpty()) {
+            if (!(player.getOffhandItem().getItem() instanceof BlockItem)) {
+                return null;
+            }
+        } else if (!(mainHand.getItem() instanceof BlockItem)) {
+            return null;
+        }
+        HitResult hit = player.pick(module.slider("range").value, 1.0F, false);
+        if (hit.getType() != HitResult.Type.MISS || !(hit instanceof BlockHitResult blockHit)
+                || !mc.level.getWorldBorder().isWithinBounds(blockHit.getBlockPos())) {
+            return null;
+        }
+        return blockHit;
+    }
+
+    private static boolean throughWallsRightClick(InputEvent.InteractionKeyMappingTriggered event) {
+        Module module = ModuleRegistry.THROUGH_WALLS;
+        if (!module.isEnabled()) {
+            return false;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.level == null || mc.gameMode == null
+                || event.getKeyMapping() != mc.options.keyUse || mc.player.isHandsBusy()
+                || mc.player.isSpectator() || !mc.player.getMainHandItem().isEmpty()
+                || !mc.player.getOffhandItem().isEmpty()) {
+            return false;
+        }
+        BlockPos target = findThroughWallsTarget(mc, mc.player, module);
+        if (target == null) {
+            return false;
+        }
+        BlockHitResult hit = new BlockHitResult(Vec3.atCenterOf(target), Direction.UP, target, false);
+        return interactWithBlock(event, hit);
+    }
+
+    private static BlockPos findThroughWallsTarget(Minecraft mc, LocalPlayer player, Module module) {
+        Vec3 start = player.getEyePosition(1.0F);
+        Vec3 end = start.add(player.getViewVector(1.0F).scale(module.slider("range").value));
+        return BlockGetter.traverseBlocks(start, end, null, (context, pos) -> {
+            Block block = mc.level.getBlockState(pos).getBlock();
+            String setting = throughWallsSetting(block);
+            if (setting == null || !module.bool(setting).value) {
+                return null;
+            }
+            BlockPos target = pos.immutable();
+            return mc.level.getWorldBorder().isWithinBounds(target) ? target : null;
+        }, context -> null);
+    }
+
+    private static String throughWallsSetting(Block block) {
+        ResourceLocation id = ForgeRegistries.BLOCKS.getKey(block);
+        if (id == null || !id.getNamespace().equals("minecraft")) {
+            return null;
+        }
+        return switch (id.getPath()) {
+            case "chest" -> "chest";
+            case "trapped_chest" -> "trapped_chest";
+            case "ender_chest" -> "ender_chest";
+            case "barrel" -> "barrel";
+            case "crafting_table" -> "crafting_table";
+            case "furnace" -> "furnace";
+            case "blast_furnace" -> "blast_furnace";
+            case "smoker" -> "smoker";
+            default -> null;
+        };
+    }
+
+    private static void throughWallsScanTick(Minecraft mc, LocalPlayer player) {
+        Module module = ModuleRegistry.THROUGH_WALLS;
+        if (!module.isEnabled()) {
+            throughWallsCache.clear();
+            throughWallsTicks = 0;
+            return;
+        }
+        if (++throughWallsTicks < 5) {
+            return;
+        }
+        throughWallsTicks = 0;
+        throughWallsCache.clear();
+        double range = module.slider("range").value;
+        double rangeSq = range * range;
+        int radius = (int) Math.ceil(range);
+        int centerX = Mth.floor(player.getX());
+        int centerY = Mth.floor(player.getY());
+        int centerZ = Mth.floor(player.getZ());
+        Vec3 eye = player.getEyePosition(1.0F);
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -radius; dy <= radius; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    BlockPos pos = new BlockPos(centerX + dx, centerY + dy, centerZ + dz);
+                    Block block = mc.level.getBlockState(pos).getBlock();
+                    String setting = throughWallsSetting(block);
+                    if (setting == null || !module.bool(setting).value
+                            || eye.distanceToSqr(Vec3.atCenterOf(pos)) > rangeSq) {
+                        continue;
+                    }
+                    throughWallsCache.add(pos);
+                }
+            }
+        }
+    }
+
+    private static boolean interactWithBlock(InputEvent.InteractionKeyMappingTriggered event, BlockHitResult hit) {
+        Minecraft mc = Minecraft.getInstance();
+        InteractionResult result = mc.gameMode.useItemOn(mc.player, event.getHand(), hit);
+        if (result.consumesAction() && result.shouldSwing() && event.shouldSwingHand()) {
+            mc.player.swing(event.getHand());
+        }
+        event.setCanceled(true);
+        return true;
+    }
+
+    private static void updateAirPlaceTarget(Minecraft mc, LocalPlayer player) {
+        Module module = ModuleRegistry.AIR_PLACE;
+        BlockHitResult hit = module.isEnabled() ? airPlaceHit(mc, player, module) : null;
+        airPlaceTarget = hit == null ? null : hit.getBlockPos();
     }
 
     @SubscribeEvent
@@ -209,9 +370,10 @@ public final class ClientEvents {
         }
 
         aimAssistTick(mc, player);
-        WallHackGlow.tick(mc, player);
+        throughWallsScanTick(mc, player);
         xrayScanTick(mc, player);
         autoMlgTick(player);
+        updateAirPlaceTarget(mc, player);
     }
 
     private static void applyReach(Player player) {
@@ -331,6 +493,17 @@ public final class ClientEvents {
             return m.bool("monsters").value;
         }
         return m.bool("animals").value;
+    }
+
+    private static boolean wallHackVisible(LivingEntity entity) {
+        Module module = ModuleRegistry.WALL_HACK;
+        if (entity instanceof Player) {
+            return module.bool("players").value;
+        }
+        if (entity.getType().getCategory() == MobCategory.MONSTER) {
+            return module.bool("monsters").value;
+        }
+        return module.bool("animals").value;
     }
 
     private static void xrayScanTick(Minecraft mc, LocalPlayer player) {
@@ -453,7 +626,11 @@ public final class ClientEvents {
 
     @SubscribeEvent
     public static void onRenderLevelLast(RenderLevelLastEvent event) {
-        if (!ModuleRegistry.TRACER.isEnabled() && !ModuleRegistry.XRAY.isEnabled()) {
+        boolean showAirPlace = ModuleRegistry.AIR_PLACE.isEnabled() && airPlaceTarget != null;
+        boolean showThroughWalls = ModuleRegistry.THROUGH_WALLS.isEnabled() && !throughWallsCache.isEmpty();
+        boolean showWallHack = ModuleRegistry.WALL_HACK.isEnabled();
+        if (!ModuleRegistry.TRACER.isEnabled() && !ModuleRegistry.XRAY.isEnabled()
+                && !showAirPlace && !showThroughWalls && !showWallHack) {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
@@ -462,12 +639,40 @@ public final class ClientEvents {
         }
         Vec3 cam = mc.gameRenderer.getMainCamera().getPosition();
         Matrix4f model = event.getPoseStack().last().pose();
+        List<LivingEntity> wallHackEntities = List.of();
+        if (showWallHack) {
+            double range = ModuleRegistry.WALL_HACK.slider("range").value;
+            wallHackEntities = mc.level.getEntitiesOfClass(LivingEntity.class,
+                    mc.player.getBoundingBox().inflate(range),
+                    entity -> entity != mc.player && entity.isAlive()
+                            && !entity.isInvisible() && !entity.isSpectator()
+                            && wallHackVisible(entity));
+        }
 
         RenderSystem.disableDepthTest();
+        RenderSystem.depthMask(false);
         RenderSystem.disableCull();
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         RenderSystem.setShader(GameRenderer::getPositionColorShader);
+
+        if (showThroughWalls || showWallHack) {
+            BufferBuilder fills = Tesselator.getInstance().getBuilder();
+            fills.begin(VertexFormat.Mode.QUADS, DefaultVertexFormat.POSITION_COLOR);
+            if (showThroughWalls) {
+                for (BlockPos pos : throughWallsCache) {
+                    renderAabbFill(model, fills, new AABB(pos), cam, 1.0f, 0.55f, 0.12f, 0.22f);
+                }
+            }
+            if (showWallHack) {
+                for (LivingEntity entity : wallHackEntities) {
+                    renderAabbFill(model, fills, interpolatedBox(entity, event.getPartialTick()), cam,
+                            1.0f, 0.15f, 0.15f, 0.18f);
+                }
+            }
+            Tesselator.getInstance().end();
+        }
+
         RenderSystem.lineWidth(1.5f);
         BufferBuilder buf = Tesselator.getInstance().getBuilder();
         buf.begin(VertexFormat.Mode.DEBUG_LINES, DefaultVertexFormat.POSITION_COLOR);
@@ -500,6 +705,23 @@ public final class ClientEvents {
             }
         }
 
+        if (showAirPlace) {
+            renderBox(model, buf, airPlaceTarget, cam, 0.09f, 0.60f, 0.84f);
+        }
+
+        if (showThroughWalls) {
+            for (BlockPos pos : throughWallsCache) {
+                renderBox(model, buf, pos, cam, 1.0f, 0.65f, 0.2f);
+            }
+        }
+
+        if (showWallHack) {
+            for (LivingEntity entity : wallHackEntities) {
+                renderAabb(model, buf, interpolatedBox(entity, event.getPartialTick()), cam,
+                        1.0f, 0.15f, 0.15f, 1.0f);
+            }
+        }
+
         if (ModuleRegistry.XRAY.isEnabled()) {
             for (BlockPos p : xrayCache) {
                 int[] info = xrayTargets.get(mc.level.getBlockState(p).getBlock());
@@ -514,6 +736,7 @@ public final class ClientEvents {
         Tesselator.getInstance().end();
         RenderSystem.disableBlend();
         RenderSystem.enableCull();
+        RenderSystem.depthMask(true);
         RenderSystem.enableDepthTest();
     }
 
@@ -530,6 +753,53 @@ public final class ClientEvents {
             buf.vertex(model, e[0], e[1], e[2]).color(r, g, b, 1.0f).endVertex();
             buf.vertex(model, e[3], e[4], e[5]).color(r, g, b, 1.0f).endVertex();
         }
+    }
+
+    private static void renderAabb(Matrix4f model, BufferBuilder buf, AABB box, Vec3 cam,
+                                    float r, float g, float b, float alpha) {
+        float[][] corners = boxCorners(box, cam);
+        int[][] edges = {
+                {0, 1}, {1, 2}, {2, 3}, {3, 0}, {4, 5}, {5, 6},
+                {6, 7}, {7, 4}, {0, 4}, {1, 5}, {2, 6}, {3, 7}
+        };
+        for (int[] edge : edges) {
+            float[] start = corners[edge[0]];
+            float[] end = corners[edge[1]];
+            buf.vertex(model, start[0], start[1], start[2]).color(r, g, b, alpha).endVertex();
+            buf.vertex(model, end[0], end[1], end[2]).color(r, g, b, alpha).endVertex();
+        }
+    }
+
+    private static void renderAabbFill(Matrix4f model, BufferBuilder buf, AABB box, Vec3 cam,
+                                       float r, float g, float b, float alpha) {
+        float[][] corners = boxCorners(box, cam);
+        int[][] faces = {
+                {0, 3, 2, 1}, {4, 5, 6, 7}, {0, 1, 5, 4},
+                {3, 7, 6, 2}, {0, 4, 7, 3}, {1, 2, 6, 5}
+        };
+        for (int[] face : faces) {
+            for (int index : face) {
+                float[] point = corners[index];
+                buf.vertex(model, point[0], point[1], point[2]).color(r, g, b, alpha).endVertex();
+            }
+        }
+    }
+
+    private static float[][] boxCorners(AABB box, Vec3 cam) {
+        float x0 = (float) (box.minX - cam.x);
+        float y0 = (float) (box.minY - cam.y);
+        float z0 = (float) (box.minZ - cam.z);
+        float x1 = (float) (box.maxX - cam.x);
+        float y1 = (float) (box.maxY - cam.y);
+        float z1 = (float) (box.maxZ - cam.z);
+        return new float[][]{
+                {x0, y0, z0}, {x1, y0, z0}, {x1, y0, z1}, {x0, y0, z1},
+                {x0, y1, z0}, {x1, y1, z0}, {x1, y1, z1}, {x0, y1, z1}
+        };
+    }
+
+    private static AABB interpolatedBox(LivingEntity entity, float partialTick) {
+        return entity.getBoundingBox().move(entity.getPosition(partialTick).subtract(entity.position()));
     }
 
     @SubscribeEvent

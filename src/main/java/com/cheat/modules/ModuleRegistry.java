@@ -15,6 +15,20 @@ public final class ModuleRegistry {
 
     public static final Module NO_HUNGER = new Module("Anti Hunger", ModuleCategory.PLAYER);
 
+    public static final Module AIR_PLACE = new Module("AirPlace", ModuleCategory.WORLD)
+            .slider("range", "Distance", 1.0, 6.0, 0.05, 5.0);
+
+    public static final Module THROUGH_WALLS = new Module("Through Walls", ModuleCategory.WORLD)
+            .slider("range", "Portée", 1.0, 6.0, 0.05, 4.5)
+            .bool("chest", "Coffre", true)
+            .bool("trapped_chest", "Coffre piégé", true)
+            .bool("ender_chest", "End Chest", true)
+            .bool("barrel", "Tonneau", true)
+            .bool("crafting_table", "Table de craft", true)
+            .bool("furnace", "Four", true)
+            .bool("blast_furnace", "Four à charbon", true)
+            .bool("smoker", "Fumoir", true);
+
     public static final Module FREECAM = new Module("FreeCam", ModuleCategory.RENDER)
             .slider("speed", "Vitesse", 0.1, 3.0, 0.05, 0.9);
 
@@ -44,12 +58,15 @@ public final class ModuleRegistry {
     public static final Module FULLBRIGHT = new Module("Fullbright", ModuleCategory.RENDER);
 
     public static final Module WALL_HACK = new Module("WallHack", ModuleCategory.RENDER)
-            .slider("range", "Portée", 10.0, 128.0, 1.0, 64.0);
+            .slider("range", "Portée", 10.0, 128.0, 1.0, 64.0)
+            .bool("players", "Joueurs", true)
+            .bool("monsters", "Mobs hostiles", true)
+            .bool("animals", "Animaux", true);
 
     private static final List<Module> ALL = List.of(
             AIM_ASSIST, REACH, CRITICALS, TRACER,
             FLY, AUTO_MLG, NO_FALL,
-            NO_HUNGER,
+            NO_HUNGER, AIR_PLACE, THROUGH_WALLS,
             FREECAM, XRAY, FULLBRIGHT, WALL_HACK
     );
 
