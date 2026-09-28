@@ -7,7 +7,7 @@ modId="cheat"
 version="${file.jarVersion}"
 displayName="Cheat"
 authors="satanas"
-description="Client-side cheat: fly, no fall, auto mlg, no hunger, no knockback, freecam, critical hits, fullbright, reach, aim assist, tracers, x-ray, wallhack (ESP) and a custom configurable menu (default key: Right Shift)."
+description="Client-side cheat: fly, boat fly, no fall, auto mlg, no hunger, no knockback, freecam, critical hits, fullbright, reach, aim assist, tracers, x-ray, through walls, block esp, wallhack (ESP), air place and a custom configurable menu with searchable block lists (default key: Right Shift)."
 
 [[dependencies.cheat]]
 modId="forge"
